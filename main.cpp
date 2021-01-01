@@ -4,25 +4,36 @@
 #include <atlbase.h>
 #include <atlcom.h>
 
+#include "HResultException.h"
+
+
 #define DISC_INDEX 0
 
 #define ReleaseAndNull(x)       \
 {                               \
-    if ((x) != NULL)            \
+    if ((x) != nullptr)            \
     {                           \
         (x)->Release();         \
-        (x) = NULL;             \
+        (x) = nullptr;             \
     }                           \
 }
 
 #define SafeArrayDestroyDataAndNull(x) \
 {                                      \
-    if ((x) != NULL)                   \
+    if ((x) != nullptr)                   \
     {                                  \
         SafeArrayDestroyData(x);       \
-        (x) = NULL;                    \
+        (x) = nullptr;                    \
     }                                  \
 }
+
+#define CHECK_RESULT(result, msg)            \
+{                                            \
+    if (FAILED(result))                      \
+    {                                        \
+        throw HResultException(msg, result); \
+    }                                        \
+}                                      
 
 // using a simple array due to consecutive zero-based values in this enum
 const CHAR* g_MediaTypeStrings[] = {
@@ -49,283 +60,149 @@ const CHAR* g_MediaTypeStrings[] = {
     "IMAPI_MEDIA_TYPE_MAX"
 };
 
-
-static void PrintHR(HRESULT hr)
-{
-    LPVOID lpMsgBuf;
-    DWORD ret;
-
-    ret = FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER |
-        FORMAT_MESSAGE_FROM_HMODULE,
-        GetModuleHandle(TEXT("imapi2.dll")),
-        hr,
-        0, //MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR)&lpMsgBuf,
-        0, NULL);
-
-    if (ret != 0)
-    {
-        printf("  Returned %08x: %s\n", hr, lpMsgBuf);
-    }
-
-    if (ret == 0)
-    {
-        ret = FormatMessage(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER |
-            FORMAT_MESSAGE_FROM_HMODULE,
-            GetModuleHandle(TEXT("imapi2fs.dll")),
-            hr,
-            0, //MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            (LPTSTR)&lpMsgBuf,
-            0, NULL);
-
-        if (ret != 0)
-        {
-            printf("  Returned %08x: %s\n", hr, lpMsgBuf);
-        }
-    }
-
-    if (ret == 0)
-    {
-        ret = FormatMessage(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER |
-            FORMAT_MESSAGE_FROM_SYSTEM,
-            NULL,
-            hr,
-            0, //MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            (LPTSTR)&lpMsgBuf,
-            0, NULL);
-
-        if (ret != 0)
-        {
-            printf("  Returned %08x: %s\n", hr, lpMsgBuf);
-        }
-        else
-        {
-            printf("  Returned %08x (no description)\n\n", hr);
-        }
-    }
-
-    LocalFree(lpMsgBuf);
-}
-
 static void FreeSysStringAndNull(BSTR& t)
 {
     ::SysFreeString(t);
-    t = NULL;
+    t = nullptr;
     return;
 }
 
 
 // Get a disc recorder given a disc index
-static HRESULT GetDiscRecorder(__in ULONG index, __out IDiscRecorder2** recorder)
+static void GetDiscRecorder(__in ULONG index, __out IDiscRecorder2** recorder)
 {
-    HRESULT hr = S_OK;
-    IDiscMaster2* tmpDiscMaster = NULL;
-    BSTR tmpUniqueId = NULL;
-    IDiscRecorder2* tmpRecorder = NULL;
+    IDiscMaster2* tmpDiscMaster = nullptr;
+    BSTR tmpUniqueId = nullptr;
+    IDiscRecorder2* tmpRecorder = nullptr;
 
-    *recorder = NULL;
+    *recorder = nullptr;
 
-    // create the disc master object
-    if (SUCCEEDED(hr))
-    {
-        hr = CoCreateInstance(CLSID_MsftDiscMaster2,
-            NULL, CLSCTX_ALL,
-            IID_PPV_ARGS(&tmpDiscMaster)
-        );
-        if (FAILED(hr))
-        {
-            printf("Failed CoCreateInstance\n");
-            PrintHR(hr);
-        }
-    }
+    try {
 
-    // get the unique id string
-    if (SUCCEEDED(hr))
-    {
-        hr = tmpDiscMaster->get_Item(index, &tmpUniqueId);
-        if (FAILED(hr))
-        {
-            printf("Failed tmpDiscMaster->get_Item\n");
-            PrintHR(hr);
-        }
-    }
+        // create the disc master object
+        CHECK_RESULT(CoCreateInstance(CLSID_MsftDiscMaster2, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&tmpDiscMaster)),
+        "Failed CoCreateInstance\n");
 
-    // Create a new IDiscRecorder2
-    if (SUCCEEDED(hr))
-    {
-        hr = CoCreateInstance(CLSID_MsftDiscRecorder2,
-            NULL, CLSCTX_ALL,
-            IID_PPV_ARGS(&tmpRecorder)
-        );
-        if (FAILED(hr))
-        {
-            printf("Failed CoCreateInstance\n");
-            PrintHR(hr);
-        }
-    }
-    // Initialize it with the provided BSTR
-    if (SUCCEEDED(hr))
-    {
-        hr = tmpRecorder->InitializeDiscRecorder(tmpUniqueId);
-        if (FAILED(hr))
-        {
-            printf("Failed to init disc recorder\n");
-            PrintHR(hr);
-        }
-    }
-    // copy to caller or release recorder
-    if (SUCCEEDED(hr))
-    {
+        // get the unique id string
+        CHECK_RESULT(tmpDiscMaster->get_Item(index, &tmpUniqueId),
+        "Failed tmpDiscMaster->get_Item\n");
+
+        // Create a new IDiscRecorder2
+        CHECK_RESULT(CoCreateInstance(CLSID_MsftDiscRecorder2, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&tmpRecorder)),
+        "Failed CoCreateInstance\n");
+
+        // Initialize it with the provided BSTR
+        CHECK_RESULT(tmpRecorder->InitializeDiscRecorder(tmpUniqueId),
+        "Failed to init disc recorder\n");
+
+        // copy to caller or release recorder
         *recorder = tmpRecorder;
     }
-    else
+
+    catch(const HResultException&)
     {
         ReleaseAndNull(tmpRecorder);
+
+        ReleaseAndNull(tmpDiscMaster);
+        FreeSysStringAndNull(tmpUniqueId);
+        throw;
     }
+
     // all other cleanup
     ReleaseAndNull(tmpDiscMaster);
     FreeSysStringAndNull(tmpUniqueId);
-    return hr;
 }
 
 static HRESULT ListAllRecorders()
 {
     HRESULT hr = S_OK;
     LONG          count = 0;
-    IDiscMaster2* tmpDiscMaster = NULL;
+    IDiscMaster2* tmpDiscMaster = nullptr;
+    IDiscFormat2Data* dataWriter = nullptr;
+    BSTR discId = nullptr;
+    BSTR venId = nullptr;
+    IDiscRecorder2* discRecorder = nullptr;
+    SAFEARRAY* mountPoints = nullptr;
 
     // create a disc master object
-    if (SUCCEEDED(hr))
+    CHECK_RESULT(CoCreateInstance(CLSID_MsftDiscMaster2, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&tmpDiscMaster)),
+    "Failed CoCreateInstance\n");
+
+    try
     {
-        hr = CoCreateInstance(CLSID_MsftDiscMaster2,
-            NULL, CLSCTX_ALL,
-            IID_PPV_ARGS(&tmpDiscMaster)
-        );
-        if (FAILED(hr))
-        {
-            printf("Failed CoCreateInstance\n");
-            PrintHR(hr);
-        }
-    }
-    // Get number of recorders
-    if (SUCCEEDED(hr))
-    {
-        hr = tmpDiscMaster->get_Count(&count);
+        // Get number of recorders
+        CHECK_RESULT(tmpDiscMaster->get_Count(&count), "Failed to get count\n");
 
-        if (FAILED(hr))
-        {
-            printf("Failed to get count\n");
-            PrintHR(hr);
-        }
-    }
-
-    if (count > 0)
-    {
-
-        IDiscRecorder2* discRecorder = NULL;
-
-        hr = GetDiscRecorder(DISC_INDEX, &discRecorder);
-
-        if (SUCCEEDED(hr))
+        if (count > 0)
         {
 
-            BSTR discId = NULL;
-            BSTR venId = NULL;
+            GetDiscRecorder(DISC_INDEX, &discRecorder);
 
             // Get the device strings
-            if (SUCCEEDED(hr)) { hr = discRecorder->get_VendorId(&venId); }
-            if (SUCCEEDED(hr)) { hr = discRecorder->get_ProductId(&discId); }
-            if (FAILED(hr))
+            try
             {
-                printf("Failed to get ID's\n");
-                PrintHR(hr);
-            }
+                CHECK_RESULT(discRecorder->get_VendorId(&venId), "Failed to get Vendor ID.");
+                CHECK_RESULT(discRecorder->get_ProductId(&venId), "Failed to get Product ID.");
 
-            if (SUCCEEDED(hr))
-            {
                 printf("Recorder %d: %ws %ws", DISC_INDEX, venId, discId);
             }
-            // Get the mount point
-            if (SUCCEEDED(hr))
+            catch(const HResultException& e)
             {
-                SAFEARRAY* mountPoints = NULL;
-                hr = discRecorder->get_VolumePathNames(&mountPoints);
-                if (FAILED(hr))
-                {
-                    printf("Unable to get mount points, failed\n");
-                    PrintHR(hr);
-                }
-                else if (mountPoints->rgsabound[0].cElements == 0)
-                {
-                    printf(" (*** NO MOUNT POINTS ***)");
-                }
-                else
-                {
-                    VARIANT* tmp = (VARIANT*)(mountPoints->pvData);
-                    printf(" (");
-                    for (ULONG j = 0; j < mountPoints->rgsabound[0].cElements; j++)
-                    {
-                        printf(" %ws ", tmp[j].bstrVal);
-                    }
-                    printf(")");
-                }
-                SafeArrayDestroyDataAndNull(mountPoints);
+                std::cerr << e.what() << '\n';
             }
-            // Get the media type
+
+            CHECK_RESULT(discRecorder->get_VolumePathNames(&mountPoints), "Unable to get mount points, failed\n");
+
+            if (mountPoints->rgsabound[0].cElements == 0)
+            {
+                throw std::runtime_error("(*** NO MOUNT POINTS ***)");
+            }
+            else
+            {
+                VARIANT* tmp = (VARIANT*)(mountPoints->pvData);
+                printf(" (");
+                for (ULONG j = 0; j < mountPoints->rgsabound[0].cElements; j++)
+                {
+                    printf(" %ws ", tmp[j].bstrVal);
+                }
+                printf(")");
+            }
+            SafeArrayDestroyDataAndNull(mountPoints);
+
+            // create a DiscFormat2Data object
+            CHECK_RESULT(CoCreateInstance(CLSID_MsftDiscFormat2Data,
+                nullptr, CLSCTX_ALL,
+                IID_PPV_ARGS(&dataWriter)), "Failed CoCreateInstance on dataWriter\n");
+
+            CHECK_RESULT(dataWriter->put_Recorder(discRecorder), "Failed dataWriter->put_Recorder\n");
+
+            // get the current media in the recorder
+            IMAPI_MEDIA_PHYSICAL_TYPE mediaType = IMAPI_MEDIA_TYPE_UNKNOWN;
+            hr = dataWriter->get_CurrentPhysicalMediaType(&mediaType);
             if (SUCCEEDED(hr))
             {
-                IDiscFormat2Data* dataWriter = NULL;
-
-                // create a DiscFormat2Data object
-                if (SUCCEEDED(hr))
-                {
-                    hr = CoCreateInstance(CLSID_MsftDiscFormat2Data,
-                        NULL, CLSCTX_ALL,
-                        IID_PPV_ARGS(&dataWriter)
-                    );
-                    if (FAILED(hr))
-                    {
-                        printf("Failed CoCreateInstance on dataWriter\n");
-                        PrintHR(hr);
-                    }
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    hr = dataWriter->put_Recorder(discRecorder);
-                    if (FAILED(hr))
-                    {
-                        printf("Failed dataWriter->put_Recorder\n");
-                        PrintHR(hr);
-                    }
-                }
-                // get the current media in the recorder
-                if (SUCCEEDED(hr))
-                {
-                    IMAPI_MEDIA_PHYSICAL_TYPE mediaType = IMAPI_MEDIA_TYPE_UNKNOWN;
-                    hr = dataWriter->get_CurrentPhysicalMediaType(&mediaType);
-                    if (SUCCEEDED(hr))
-                    {
-                        printf(" (%s)", g_MediaTypeStrings[mediaType]);
-                    }
-                }
-                ReleaseAndNull(dataWriter);
+                printf(" (%s)", g_MediaTypeStrings[mediaType]);
             }
 
             printf("\n");
-            FreeSysStringAndNull(venId);
-            FreeSysStringAndNull(discId);
+        }
 
-        }
-        else
-        {
-            printf("Failed to get drive %d\n", DISC_INDEX);
-        }
+        ReleaseAndNull(dataWriter);
+
+        FreeSysStringAndNull(venId);
+        FreeSysStringAndNull(discId);
 
         ReleaseAndNull(discRecorder);
+    }
+    catch (const HResultException&)
+    {
+        ReleaseAndNull(dataWriter);
+
+        FreeSysStringAndNull(venId);
+        FreeSysStringAndNull(discId);
+
+        ReleaseAndNull(discRecorder);
+        throw;
     }
 
     return hr;
@@ -334,7 +211,7 @@ static HRESULT ListAllRecorders()
 int __cdecl wmain(int argc, WCHAR* argv[])
 {
     HRESULT coInitHr = S_OK;
-    HRESULT hr = S_OK;
+    int ret = 0;
 
     coInitHr = CoInitialize(nullptr);
 
@@ -350,17 +227,17 @@ int __cdecl wmain(int argc, WCHAR* argv[])
 
     if (SUCCEEDED(coInitHr))
     {
-        hr = ListAllRecorders();
+        try
+        {
+            ListAllRecorders();
+        }
+        catch(const HResultException& e)
+        {
+            std::cout << e.what() << std::endl;
+            ret = 1;
+        }
         CoUninitialize();
     }
 
-    if (SUCCEEDED(hr))
-    {
-        return 0;
-    }
-    else
-    {
-        PrintHR(hr);
-        return 1;
-    }
+    return ret;
 }
