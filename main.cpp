@@ -1,8 +1,6 @@
 #include <imapi2.h>
 #include <ntverp.h>
 #include <iostream>
-#include <atlbase.h>
-#include <atlcom.h>
 
 #include "HResultException.h"
 
@@ -113,10 +111,10 @@ static void GetDiscRecorder(__in ULONG index, __out IDiscRecorder2** recorder)
     FreeSysStringAndNull(tmpUniqueId);
 }
 
-static HRESULT ListAllRecorders()
+static int ListAllRecorders()
 {
-    HRESULT hr = S_OK;
-    LONG          count = 0;
+    int ret = -1;
+    LONG count = 0;
     IDiscMaster2* tmpDiscMaster = nullptr;
     IDiscFormat2Data* dataWriter = nullptr;
     BSTR discId = nullptr;
@@ -178,10 +176,15 @@ static HRESULT ListAllRecorders()
 
             // get the current media in the recorder
             IMAPI_MEDIA_PHYSICAL_TYPE mediaType = IMAPI_MEDIA_TYPE_UNKNOWN;
-            hr = dataWriter->get_CurrentPhysicalMediaType(&mediaType);
+            HRESULT hr = dataWriter->get_CurrentPhysicalMediaType(&mediaType);
             if (SUCCEEDED(hr))
             {
                 printf(" (%s)", g_MediaTypeStrings[mediaType]);
+                ret = mediaType;
+            }
+            else
+            {
+                throw HResultException("Error getting media type", hr);
             }
 
             printf("\n");
@@ -205,38 +208,35 @@ static HRESULT ListAllRecorders()
         throw;
     }
 
-    return hr;
+    return ret;
 }
 
-int __cdecl wmain(int argc, WCHAR* argv[])
+int main(int argc, WCHAR* argv[])
 {
     HRESULT coInitHr = S_OK;
-    int ret = 0;
+    int ret = -1;
 
     coInitHr = CoInitialize(nullptr);
 
-    if (CAtlBaseModule::m_bInitFailed)
+    try
     {
-        printf("AtlBaseInit failed...\n");
-        coInitHr = E_FAIL;
-    }
-    else
-    {
-        coInitHr = S_OK;
-    }
-
-    if (SUCCEEDED(coInitHr))
-    {
+        CHECK_RESULT(coInitHr, "CoInitialize failed.\n");
         try
         {
-            ListAllRecorders();
+            ret = ListAllRecorders();
         }
         catch(const HResultException& e)
         {
             std::cout << e.what() << std::endl;
-            ret = 1;
+            ret = -2;
         }
+
         CoUninitialize();
+    }
+    catch(const HResultException& e)
+    {
+        std::cout << e.what() << std::endl;
+        ret = -3;
     }
 
     return ret;
