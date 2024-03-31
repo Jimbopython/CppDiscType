@@ -2,7 +2,9 @@ name: Build Windows
 
 on:
   push:
-    branches: [ $default-branch, feature/actions ]
+    branches: [ $default-branch ]
+    tags:
+      - v*
   pull_request:
     branches: [ $default-branch ]
 
@@ -27,3 +29,16 @@ jobs:
       with:
         name: executable
         path: ${{github.workspace}}/build/Release/CppDiscType.exe
+
+    - name: Turn slashes
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        $Path = "${{github.workspace}}" -replace '\\','/'
+        echo $PATH
+        echo "WORKSPACE_PATH=$Path" >> $env:GITHUB_ENV
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: ${{env.WORKSPACE_PATH}}/build/Release/CppDiscType.exe
