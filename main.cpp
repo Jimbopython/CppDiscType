@@ -4,7 +4,7 @@
 
 #include "HResultException.h"
 
-#define DISC_INDEX 0
+#define DISC_INDEX 1
 
 #define ReleaseAndNull(x)                                                      \
     {                                                                          \
