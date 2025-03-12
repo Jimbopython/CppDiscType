@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <memory>
 
 class IDrive
 {
@@ -18,4 +19,8 @@ class WindowsDrive : public IDrive
 };
 
 //TODO change void to ILaufwerk
-IDrive* findDrive(const std::string& mountPoint){return new WindowsDrive{};}
+// IDrive* niemals dumme pointer, immer smart pointer!
+std::shared_ptr<IDrive> findDrive(const std::string& mountPoint) {
+    // return new WindowsDrive;
+    return std::make_shared<WindowsDrive>();
+}
